@@ -38,11 +38,22 @@ uint64 sys_gettimeofday(TimeVal *val, int _tz) // TODO: implement sys_gettimeofd
 	val->sec = 0;
 	val->usec = 0;
 
-	/* The code in `ch3` will leads to memory bugs*/
-
 	// uint64 cycle = get_cycle();
 	// val->sec = cycle / CPU_FREQ;
 	// val->usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
+
+	/* The code in `ch3` will leads to memory bugs*/
+	// Step 1: Get the current process (needed for its page table)
+	struct proc *p = curr_proc();
+	// Step 2: Translate user VA to kernel PA via useraddr()
+	TimeVal *kval = (TimeVal *)useraddr(p->pagetable, (uint64)val);
+	// Step 3: If translation failed, return error
+	if (kval == 0) return -1;
+	// Step 4: Write time data to the translated pointer
+	uint64 cycle = get_cycle();
+	kval->sec = cycle / CPU_FREQ;
+	kval->usec = (cycle % CPU_FREQ) * 1000000 / CPU_FREQ;
+	
 	return 0;
 }
 
@@ -52,12 +63,105 @@ uint64 sys_gettimeofday(TimeVal *val, int _tz) // TODO: implement sys_gettimeofd
 /*
 * LAB1: you may need to define sys_task_info here
 */
+// 5
+// Implement the sys_task_info function, which retrieves information about the current process,
+// including its status, the number of times it has called each syscall,
+// and the total time it has been running. This information is stored in a TaskInfo struct that is passed as an argument to the syscall.
+int sys_task_info(struct TaskInfo* taskinfo)
+{
+	struct proc *p = curr_proc();
+	// Translate user VA to kernel PA
+	struct TaskInfo *kinfo = (struct TaskInfo *)useraddr(p->pagetable, (uint64)taskinfo);
+	if (kinfo == 0) return -1;
+	kinfo->status = 2; // Running
+	for (int i = 0; i < MAX_SYSCALL; i++)
+	{
+		kinfo->syscall_times[i] = p->syscall_times[i];
+	}
+	// Elapsed time in ms since first scheduled
+	kinfo->time = (int)((get_cycle() - p->start_time) / (CPU_FREQ / 1000));
+	return 0;
+}
+
+uint64 sys_mmap(uint64 start, uint64 len, int port, int flag, int fd)
+{
+	if (len == 0)
+		return 0;
+	if (start % PGSIZE != 0)
+		return -1;
+	if (len > 1024 * 1024 * 1024)
+		return -1;
+	if ((port & ~0x7) != 0)
+		return -1;
+	if ((port & 0x7) == 0)
+		return -1;
+
+	struct proc *p = curr_proc();
+	uint64 end = start + len;
+
+	for (uint64 a = start; a < end; a += PGSIZE)
+	{
+		if (walkaddr(p->pagetable, a) != 0)
+			return -1;
+	}
+
+	int perm = PTE_U;
+	if (port & 0x1) perm |= PTE_R; // Read
+	if (port & 0x2) perm |= PTE_W; // Write
+	if (port & 0x4) perm |= PTE_X; // Execute
+
+	for (uint64 a = start; a < end; a += PGSIZE)
+	{
+		void *pa = kalloc();
+		if (pa == 0)
+			return -1;
+		memset(pa, 0, PGSIZE);
+		if (mappages(p->pagetable, a ,PGSIZE, (uint64)pa, perm) != 0)
+		{
+			kfree(pa);
+			return -1;
+		}
+	}
+
+	uint64 new_max = PGROUNDUP(end) / PGSIZE;
+	if (new_max > p->max_page)
+		p->max_page = new_max;
+	
+	return 0;
+}
+
+uint64 sys_munmap(uint64 start, uint64 len)
+{
+	if (start % PGSIZE != 0)
+		return -1;
+	if (len == 0)
+		return 0;
+	
+	struct proc *p = curr_proc();
+	uint64 va0 = start;
+	uint64 va_end = PGROUNDUP(start + len);
+
+	for (uint64 a = va0; a < va_end; a += PGSIZE)
+	{
+		if (walkaddr(p->pagetable, a) == 0)
+			return -1;
+	}
+
+	uint64 npages = (va_end - va0) / PGSIZE;
+	uvmunmap(p->pagetable, va0, npages, 1);
+
+	return 0;
+}
 
 extern char trap_page[];
+
+
 
 void syscall()
 {
 	struct trapframe *trapframe = curr_proc()->trapframe;
+	// get the current process to make using it easier
+	struct proc *p = curr_proc();
 	int id = trapframe->a7, ret;
 	uint64 args[6] = { trapframe->a0, trapframe->a1, trapframe->a2,
 			   trapframe->a3, trapframe->a4, trapframe->a5 };
@@ -66,6 +170,11 @@ void syscall()
 	/*
 	* LAB1: you may need to update syscall counter for task info here
 	*/
+		//4
+		// count the syscall times for the current process, which will be used in the task info syscall to report how many times each syscall has been called by the process
+		if (id >= 0 && id < MAX_SYSCALL) {
+			p->syscall_times[id]++;
+		}
 	switch (id) {
 	case SYS_write:
 		ret = sys_write(args[0], args[1], args[2]);
@@ -82,6 +191,11 @@ void syscall()
 	/*
 	* LAB1: you may need to add SYS_taskinfo case here
 	*/
+	// 6
+	// Provide an implementation for the task info syscall, which retrieves information about the current process, including its status, the number of times it has called each syscall, and the total time it has been running. This information is stored in a TaskInfo struct that is passed as an argument to the syscall.
+	case SYS_task_info:
+		ret = sys_task_info((struct TaskInfo*)args[0]);
+		break;
 	default:
 		ret = -1;
 		errorf("unknown syscall %d", id);

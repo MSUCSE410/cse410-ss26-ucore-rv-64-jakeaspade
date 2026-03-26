@@ -3,6 +3,7 @@
 #include "loader.h"
 #include "trap.h"
 #include "vm.h"
+#include "timer.h"
 
 struct proc pool[NPROC];
 __attribute__((aligned(16))) char kstack[NPROC][PAGE_SIZE];
@@ -33,6 +34,12 @@ void proc_init(void)
 		/*
 		* LAB1: you may need to initialize your new fields of proc here
 		*/
+	// 2
+	// Initialize syscall_times and start_time for each process in the pool to zero
+		for (int i = 0; i < MAX_SYSCALL; i++) {
+			p->syscall_times[i] = 0;
+		}
+		p->start_time = 0;
 	}
 	idle.kstack = (uint64)boot_stack_top;
 	idle.pid = 0;
@@ -69,6 +76,12 @@ found:
 	memset((void *)p->trapframe, 0, TRAP_PAGE_SIZE);
 	p->context.ra = (uint64)usertrapret;
 	p->context.sp = p->kstack + KSTACK_SIZE;
+		// 2
+	// Initialize syscall_times and start_time for the new process to zero
+	for (int i = 0; i < MAX_SYSCALL; i++) {
+		p->syscall_times[i] = 0;
+	}
+	p->start_time = 0;
 	return p;
 }
 
@@ -86,6 +99,13 @@ void scheduler(void)
 				/*
 				* LAB1: you may need to init proc start time here
 				*/
+				// 3
+				// If the process has not started running before, set its start time to the current cycle count
+				// This ensures that the start time is set when the process is first scheduled to run, which is important for accurate task info reporting
+				// sets the process state to RUNNING, sets it as the current process, and performs a context switch to start running the process
+				if (p->start_time == 0) {
+					p->start_time = get_cycle();
+				}
 				p->state = RUNNING;
 				current_proc = p;
 				swtch(&idle.context, &p->context);
