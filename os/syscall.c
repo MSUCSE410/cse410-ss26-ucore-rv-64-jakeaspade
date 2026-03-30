@@ -4,6 +4,7 @@
 #include "syscall_ids.h"
 #include "timer.h"
 #include "trap.h"
+#include "proc.h"
 
 uint64 sys_write(int fd, uint64 va, uint len)
 {
@@ -35,8 +36,8 @@ uint64 sys_sched_yield()
 uint64 sys_gettimeofday(TimeVal *val, int _tz) // TODO: implement sys_gettimeofday in pagetable. (VA to PA)
 {
 	// YOUR CODE
-	val->sec = 0;
-	val->usec = 0;
+	// val->sec = 0;
+	// val->usec = 0;
 
 	// uint64 cycle = get_cycle();
 	// val->sec = cycle / CPU_FREQ;
@@ -195,6 +196,12 @@ void syscall()
 	// Provide an implementation for the task info syscall, which retrieves information about the current process, including its status, the number of times it has called each syscall, and the total time it has been running. This information is stored in a TaskInfo struct that is passed as an argument to the syscall.
 	case SYS_task_info:
 		ret = sys_task_info((struct TaskInfo*)args[0]);
+		break;
+	case SYS_mmap:
+		ret = sys_mmap(args[0], args[1], args[2], args[3], args[4]);
+		break;
+	case SYS_munmap:
+		ret = sys_munmap(args[0], args[1]);
 		break;
 	default:
 		ret = -1;
