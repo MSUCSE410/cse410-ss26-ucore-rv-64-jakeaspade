@@ -7,7 +7,10 @@
 
 #define NPROC (512)
 #define FD_BUFFER_SIZE (16)
-
+// Safe upper limit on the number of processes to provide a safe array size for the process pool
+// The actual maximum number of processes is configurable at compile time.
+#define MAX_SYSCALL 500
+#define big_stride 65536
 struct file;
 
 // Saved registers for kernel context switches.
@@ -29,7 +32,6 @@ struct context {
 	uint64 s10;
 	uint64 s11;
 };
-
 enum procstate { UNUSED, USED, SLEEPING, RUNNABLE, RUNNING, ZOMBIE };
 
 // Per-process state
@@ -45,6 +47,10 @@ struct proc {
 	struct proc *parent; // Parent process
 	uint64 exit_code;
 	struct file *files[FD_BUFFER_SIZE];
+	// new fields for priority
+	int stride;
+	int pass;
+	long long priority;
 };
 
 int cpuid();
